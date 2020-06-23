@@ -11,6 +11,8 @@ import (
 	kataClient "github.com/openshift/kata-operator/pkg/generated/clientset/versioned"
 	v1 "k8s.io/api/core/v1"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 // KataActions declares the possible actions the daemon can take.
@@ -49,15 +51,55 @@ func updateKataConfigStatus(kataClientSet kataClient.Interface, kataConfigResour
 	return err
 }
 
-func getFailedNode(err error) (fn kataTypes.FailedNode, retErr error) {
-	// TODO - this may not be correct. Make sure you get the right hostname
-	hostname, hErr := os.Hostname()
+func getFailedNode(err error) (fn kataTypes.FailedNodeStatus, retErr error) {
+	nodeName, hErr := getNodeName()
 	if hErr != nil {
-		return kataTypes.FailedNode{}, hErr
+		return kataTypes.FailedNodeStatus{}, hErr
 	}
 
-	return kataTypes.FailedNode{
-		Name:  hostname,
+	return kataTypes.FailedNodeStatus{
+		Name:  nodeName,
 		Error: fmt.Sprintf("%+v", err),
 	}, nil
+}
+
+func getHostName() (string, error) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "", err
+	}
+	return hostname, nil
+}
+
+func getNodeName() (string, error) {
+	hostname, err := getHostName()
+	if err != nil {
+		return "", err
+	}
+
+	clientset, err := getClientSet()
+	if err != nil {
+		return "", err
+	}
+
+	pod, err := clientset.CoreV1().Pods("kata-operator").Get(hostname, metaV1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+
+	return pod.Spec.NodeName, nil
+}
+
+func getClientSet() (*kubernetes.Clientset, error) {
+	config, err := clientcmd.BuildConfigFromFlags("", "")
+	if err != nil {
+		return nil, err
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return clientset, nil
 }
