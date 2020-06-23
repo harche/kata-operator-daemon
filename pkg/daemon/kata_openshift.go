@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -16,92 +15,114 @@ import (
 	"github.com/opencontainers/image-tools/image"
 	kataTypes "github.com/openshift/kata-operator/pkg/apis/kataconfiguration/v1alpha1"
 	kataClient "github.com/openshift/kata-operator/pkg/generated/clientset/versioned"
+	v1 "k8s.io/api/core/v1"
+	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // KataInstalled checkes if kata is already installed on the node
-type KataInstalled func() (bool, error)
+type KataInstalled func() (bool, bool, error)
 
 // KataBinaryInstaller installs the kata binaries on the node
 type KataBinaryInstaller func() error
 
 //KataOpenShift is used for KataActions on OpenShift cluster nodes
 type KataOpenShift struct {
-	KataClientSet         kataClient.Interface
-	KataInstallChecker    KataInstalled
-	kataBinaryInstaller   KataBinaryInstaller
-	KataInstallStatusPath string
+	KataClientSet       kataClient.Interface
+	KataInstallChecker  KataInstalled
+	KataBinaryInstaller KataBinaryInstaller
 }
 
 // Install the kata binaries on Openshift
 func (k *KataOpenShift) Install(kataConfigResourceName string) error {
 
-	if k.KataInstallStatusPath == "" {
-		k.KataInstallStatusPath = "/host/opt/kata-install-daemon/"
-	}
-
-	if err := os.MkdirAll(k.KataInstallStatusPath, os.ModePerm); err != nil {
-		return err
-	}
-
 	if k.KataInstallChecker == nil {
-		k.KataInstallChecker = func() (bool, error) {
+		k.KataInstallChecker = func() (bool, bool, error) {
+
 			var isKataInstalled bool
+			var isCrioDropInInstalled bool
 			var err error
-			if _, err := os.Stat("/host/opt/kata-runtime"); err == nil {
-				isKataInstalled = true
-				err = nil
-			} else if os.IsNotExist(err) {
-				isKataInstalled = false
-				err = nil
-			} else {
-				isKataInstalled = false
-				err = fmt.Errorf("Unknown error while checking kata installation: %+v", err)
+
+			kataconfig, err := k.KataClientSet.KataconfigurationV1alpha1().KataConfigs(v1.NamespaceAll).Get(context.TODO(), kataConfigResourceName, metaV1.GetOptions{})
+			if err != nil {
+				return isKataInstalled, isCrioDropInInstalled, err
 			}
-			return isKataInstalled, err
+
+			nodeName, err := getNodeName()
+			if err != nil {
+				return isKataInstalled, isCrioDropInInstalled, err
+			}
+
+			for _, n := range kataconfig.Status.InstallationStatus.InProgress.BinariesInstalledNodesList {
+				if n == nodeName {
+					isKataInstalled = true
+					break
+				}
+			}
+
+			for _, n := range kataconfig.Status.InstallationStatus.Completed.CompletedNodesList {
+				if n == nodeName {
+					isCrioDropInInstalled = true
+					break
+				}
+			}
+
+			return isKataInstalled, isCrioDropInInstalled, err
 		}
 	}
 
-	isKataInstalled, err := k.KataInstallChecker()
+	isKataInstalled, isCrioDropInInstalled, err := k.KataInstallChecker()
 	if err != nil {
 		return err
 	}
 
-	if k.kataBinaryInstaller == nil {
-		k.kataBinaryInstaller = installRPMs
+	if isCrioDropInInstalled {
+		return nil
+	}
+
+	if k.KataBinaryInstaller == nil {
+		k.KataBinaryInstaller = installRPMs
 	}
 
 	if isKataInstalled {
-		// kata exist - mark completion
-		if _, err := os.Stat(k.KataInstallStatusPath + "/marked_installed"); os.IsNotExist(err) {
+		// kata exist - mark completion if crio drop in file exists
+
+		if _, err := os.Stat("/host/opt/kata-1.conf"); os.IsNotExist(err) {
 			err = updateKataConfigStatus(k.KataClientSet, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
-				if ks.InProgressNodesCount > 0 {
-					ks.InProgressNodesCount = ks.InProgressNodesCount - 1
+				nodeName, err := getNodeName()
+				if err != nil {
+					return
 				}
-				ks.CompletedNodesCount = ks.CompletedNodesCount + 1
+				ks.InstallationStatus.Completed.CompletedNodesList = append(ks.InstallationStatus.Completed.CompletedNodesList, nodeName)
+				ks.InstallationStatus.Completed.CompletedNodesCount = len(ks.InstallationStatus.Completed.CompletedNodesList)
+				if ks.InstallationStatus.InProgress.InProgressNodesCount > 0 {
+					ks.InstallationStatus.InProgress.InProgressNodesCount--
+				}
+				for i, node := range ks.InstallationStatus.InProgress.BinariesInstalledNodesList {
+					if node == nodeName {
+						ks.InstallationStatus.InProgress.BinariesInstalledNodesList =
+							append(ks.InstallationStatus.InProgress.BinariesInstalledNodesList[:i],
+								ks.InstallationStatus.InProgress.BinariesInstalledNodesList[i+1:]...)
+						break
+					}
+				}
 			})
 
 			if err != nil {
 				return fmt.Errorf("kata exists on the node, error updating kataconfig status %+v", err)
-			}
-
-			err = ioutil.WriteFile(k.KataInstallStatusPath+"/marked_installed", []byte(""), 0644)
-			if err != nil {
-				// TODO - maybe we should roll back the update to kataconfig status above
-				return err
 			}
 		}
 
 	} else {
 		// kata doesn't exist, install it.
 		err = updateKataConfigStatus(k.KataClientSet, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
-			ks.InProgressNodesCount = ks.InProgressNodesCount + 1
+			ks.InstallationStatus.InProgress.InProgressNodesCount++
 		})
 
 		if err != nil {
 			return fmt.Errorf("kata is not installed on the node, error updating kataconfig status %+v", err)
 		}
 
-		err = k.kataBinaryInstaller()
+		err = k.KataBinaryInstaller()
 
 		// Temporary hold to simulate time taken for the installation of the binaries
 		time.Sleep(10 * time.Second)
@@ -109,14 +130,15 @@ func (k *KataOpenShift) Install(kataConfigResourceName string) error {
 		if err != nil {
 			// kata installation failed. report it.
 			err = updateKataConfigStatus(k.KataClientSet, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
-				ks.InProgressNodesCount = ks.InProgressNodesCount - 1
+				ks.InstallationStatus.InProgress.InProgressNodesCount--
 
 				fn, err := getFailedNode(err)
 				if err != nil {
 					return
 				}
 
-				ks.FailedNodes = append(ks.FailedNodes, fn)
+				ks.InstallationStatus.Failed.FailedNodesList = append(ks.InstallationStatus.Failed.FailedNodesList, fn)
+				ks.InstallationStatus.Failed.FailedNodesCount = len(ks.InstallationStatus.Failed.FailedNodesList)
 			})
 
 			if err != nil {
@@ -124,9 +146,13 @@ func (k *KataOpenShift) Install(kataConfigResourceName string) error {
 			}
 
 		} else {
-			// mark daemon completion
+			// mark binaries installed
 			err = updateKataConfigStatus(k.KataClientSet, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
-				ks.CompletedDaemons = ks.CompletedDaemons + 1
+				nodeName, err := getNodeName()
+				if err != nil {
+					return
+				}
+				ks.InstallationStatus.InProgress.BinariesInstalledNodesList = append(ks.InstallationStatus.InProgress.BinariesInstalledNodesList, nodeName)
 			})
 
 			if err != nil {

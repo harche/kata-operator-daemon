@@ -589,8 +589,8 @@ github.com/grpc-ecosystem/grpc-gateway v1.9.4/go.mod h1:vNeuVxBJEsws4ogUvrchl83t
 github.com/grpc-ecosystem/grpc-gateway v1.9.5/go.mod h1:vNeuVxBJEsws4ogUvrchl83t/GYV9WGTSLVdBhOQFDY=
 github.com/grpc-ecosystem/grpc-health-probe v0.2.1-0.20181220223928-2bf0a5b182db/go.mod h1:uBKkC2RbarFsvS5jMJHpVhTLvGlGQj9JJwkaePE3FWI=
 github.com/hailocab/go-hostpool v0.0.0-20160125115350-e80d13ce29ed/go.mod h1:tMWxXQ9wFIaZeTI9F+hmhFiGpFmhOHzyShyFUhRm0H4=
-github.com/harche/kata-operator v0.0.0-20200618135506-93047f088466 h1:/6OjgZExF2N+xEluTISTvuHKw4eshxcJBoiq1VfYT9k=
-github.com/harche/kata-operator v0.0.0-20200618135506-93047f088466/go.mod h1:N5tRinz+UURb9iAvgFPlACZ+gzCg+js7dwoZRxD+y4U=
+github.com/harche/kata-operator v0.0.0-20200623053638-95508420bb0d h1:FnckiXGhWgWDVdvs1UiriaH6Cvnx0PV6q87qjB8Mgug=
+github.com/harche/kata-operator v0.0.0-20200623053638-95508420bb0d/go.mod h1:N5tRinz+UURb9iAvgFPlACZ+gzCg+js7dwoZRxD+y4U=
 github.com/hashicorp/errwrap v1.0.0 h1:hLrqtEDnRye3+sgx6z4qVLNuviH3MR5aQ0ykNJa/UYA=
 github.com/hashicorp/errwrap v1.0.0/go.mod h1:YH+1FKiLXxHSkmPseP+kNlulaMuP3n2brvKWEqk/Jc4=
 github.com/hashicorp/go-multierror v1.0.0 h1:iVjPR7a6H0tWELX5NxNe7bYopibicUzc7uPribsnS6o=
