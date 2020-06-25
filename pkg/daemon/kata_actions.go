@@ -19,7 +19,7 @@ import (
 type KataActions interface {
 	Install(kataConfigResourceName string) error
 	Upgrade() error
-	Uninstall() error
+	Uninstall(kataConfigResourceName string) error
 }
 
 type updateStatus = func(a *kataTypes.KataConfigStatus)
@@ -30,6 +30,7 @@ func updateKataConfigStatus(kataClientSet kataClient.Interface, kataConfigResour
 	for i := 0; i < attempts; i++ {
 		kataconfig, err := kataClientSet.KataconfigurationV1alpha1().KataConfigs(v1.NamespaceAll).Get(context.TODO(), kataConfigResourceName, metaV1.GetOptions{})
 		if err != nil {
+			// TODO - we need to return error
 			break
 		}
 

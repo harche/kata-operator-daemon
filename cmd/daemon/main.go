@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	kataController "github.com/openshift/kata-operator/pkg/controller/kataconfig"
 	kataDaemon "github.com/openshift/kata-operator-daemon/pkg/daemon"
+	kataController "github.com/openshift/kata-operator/pkg/controller/kataconfig"
 	kataClient "github.com/openshift/kata-operator/pkg/generated/clientset/versioned"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -54,6 +54,12 @@ func main() {
 	if isOpenShift {
 		kataActions = &kataDaemon.KataOpenShift{
 			KataClientSet: kc,
+			KataBinaryInstaller: func() error {
+				return nil
+			},
+			KataBinaryUnInstaller: func() error {
+				return nil
+			},
 		}
 	} else {
 		kataActions = &kataDaemon.KataKubernetes{
@@ -66,15 +72,16 @@ func main() {
 		err := kataActions.Install(kataConfigResourceName)
 		if err != nil {
 			fmt.Printf("Error while installation: %+v", err)
-			os.Exit(1)
 		}
 	case "upgrade":
 		kataActions.Upgrade()
 	case "uninstall":
-		kataActions.Uninstall()
+		err := kataActions.Uninstall(kataConfigResourceName)
+		if err != nil {
+			fmt.Printf("Error while uninstallation: %+v", err)
+		}
 	default:
 		fmt.Println("invalid operation. Check -h for more information.")
-		os.Exit(1)
 	}
 
 	// Wait till controller kills us

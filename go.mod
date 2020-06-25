@@ -17,7 +17,7 @@ replace (
 	github.com/Sirupsen/logrus => github.com/sirupsen/logrus v1.0.5
 	// github.com/Sirupsen/logrus => github.com/sirupsen/logrus v1.6.0
 	github.com/go-log/log => github.com/go-log/log v0.1.1-0.20181211034820-a514cf01a3eb
-	github.com/openshift/kata-operator => github.com/harche/kata-operator v0.0.0-20200623053638-95508420bb0d
+	github.com/openshift/kata-operator => github.com/harche/kata-operator v0.0.0-20200625113216-7d914bc48ca2
 	github.com/openshift/machine-config-operator => github.com/openshift/machine-config-operator v0.0.1-0.20200305103412-b9fa5093eb95
 
 	k8s.io/api => k8s.io/api v0.0.0-20191016110408-35e52d86657a

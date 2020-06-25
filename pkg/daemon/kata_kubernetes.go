@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+
 	kataClient "github.com/openshift/kata-operator/pkg/generated/clientset/versioned"
 )
 
@@ -9,6 +10,8 @@ import (
 type KataKubernetes struct {
 	KataClientSet *kataClient.Clientset
 }
+
+var _ KataActions = (*KataKubernetes)(nil)
 
 // Install the kata binaries and configure the runtime on vanilla kubernetes
 func (k *KataKubernetes) Install(kataConfigResourceName string) error {
@@ -21,6 +24,6 @@ func (k *KataKubernetes) Upgrade() error {
 }
 
 // Uninstall the kata binaries and configure the runtime on vanilla kubernetes
-func (k *KataKubernetes) Uninstall() error {
+func (k *KataKubernetes) Uninstall(kataConfigResourceName string) error {
 	return fmt.Errorf("Not Implemented Yet")
 }
