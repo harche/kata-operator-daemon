@@ -54,12 +54,12 @@ func main() {
 	if isOpenShift {
 		kataActions = &kataDaemon.KataOpenShift{
 			KataClientSet: kc,
-			KataBinaryInstaller: func() error {
-				return nil
-			},
-			KataBinaryUnInstaller: func() error {
-				return nil
-			},
+			// KataBinaryInstaller: func() error {
+			// 	return nil
+			// },
+			// KataBinaryUnInstaller: func() error {
+			// 	return nil
+			// },
 		}
 	} else {
 		kataActions = &kataDaemon.KataKubernetes{
