@@ -73,22 +73,7 @@ func getHostName() (string, error) {
 }
 
 func getNodeName() (string, error) {
-	hostname, err := getHostName()
-	if err != nil {
-		return "", err
-	}
-
-	clientset, err := getClientSet()
-	if err != nil {
-		return "", err
-	}
-
-	pod, err := clientset.CoreV1().Pods("kata-operator").Get(hostname, metaV1.GetOptions{})
-	if err != nil {
-		return "", err
-	}
-
-	return pod.Spec.NodeName, nil
+	return getHostName()
 }
 
 func getClientSet() (*kubernetes.Clientset, error) {
