@@ -302,7 +302,43 @@ func rpmostreeOverrideReplace(rpms string) error {
 }
 
 func uninstallRPMs() error {
-	return fmt.Errorf("Not Implemented Yet")
+        fmt.Fprintf(os.Stderr, "%s\n", os.Getenv("PATH"))
+        log.SetOutput(os.Stdout)
+
+        if err := syscall.Chroot("/host"); err != nil {
+                log.Fatalf("Unable to chroot to %s: %s", "/host", err)
+        }
+
+        if err := syscall.Chdir("/"); err != nil {
+                log.Fatalf("Unable to chdir to %s: %s", "/", err)
+        }
+
+        cmd := exec.Command("/usr/bin/rm", "-rf", "/opt/kata-install")
+        err := doCmd(cmd)
+        if err != nil {
+                return err
+        }
+
+        cmd = exec.Command("/usr/bin/rm", "-rf", "/usr/local/kata")
+        err = doCmd(cmd)
+        if err != nil {
+                return err
+        }
+
+
+        cmd = exec.Command("rpm-ostree", "uninstall", "--idempotent", "--all") //FIXME not -a but kata-runtime, kata-osbuilder,...
+        err = doCmd(cmd)
+        if err != nil {
+                return err
+        }
+
+        cmd = exec.Command("rpm-ostree", "override", "reset", "-a") //FIXME not -a but kata-runtime, kata-osbuilder,...
+        err = doCmd(cmd)
+        if err != nil {
+
+        }
+
+	return nil
 }
 
 func installRPMs() error {
