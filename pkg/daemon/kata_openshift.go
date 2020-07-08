@@ -302,16 +302,48 @@ func rpmostreeOverrideReplace(rpms string) error {
 }
 
 func uninstallRPMs() error {
-	return fmt.Errorf("Not Implemented Yet")
+        fmt.Fprintf(os.Stderr, "%s\n", os.Getenv("PATH"))
+        log.SetOutput(os.Stdout)
+
+        if err := syscall.Chroot("/host"); err != nil {
+                log.Fatalf("Unable to chroot to %s: %s", "/host", err)
+        }
+
+        if err := syscall.Chdir("/"); err != nil {
+                log.Fatalf("Unable to chdir to %s: %s", "/", err)
+        }
+
+        cmd := exec.Command("/usr/bin/rm", "-rf", "/opt/kata-install")
+        err := doCmd(cmd)
+        if err != nil {
+                return err
+        }
+
+        cmd = exec.Command("/usr/bin/rm", "-rf", "/usr/local/kata")
+        err = doCmd(cmd)
+        if err != nil {
+                return err
+        }
+
+
+        cmd = exec.Command("rpm-ostree", "uninstall", "--idempotent", "--all") //FIXME not -a but kata-runtime, kata-osbuilder,...
+        err = doCmd(cmd)
+        if err != nil {
+                return err
+        }
+
+        cmd = exec.Command("rpm-ostree", "override", "reset", "-a") //FIXME not -a but kata-runtime, kata-osbuilder,...
+        err = doCmd(cmd)
+        if err != nil {
+
+        }
+
+	return nil
 }
 
 func installRPMs() error {
 	fmt.Fprintf(os.Stderr, "%s\n", os.Getenv("PATH"))
 	log.SetOutput(os.Stdout)
-
-	if _, err := os.Stat("/host/usr/bin/kata-runtime"); err != nil {
-		return nil
-	}
 
 	cmd := exec.Command("mkdir", "-p", "/host/opt/kata-install")
 	err := doCmd(cmd)
@@ -335,7 +367,7 @@ func installRPMs() error {
 	if err != nil {
 		fmt.Println(err)
 	}
-	srcRef, err := alltransports.ParseImageName("docker://quay.io/jensfr/kata-artifacts:v2.0")
+	srcRef, err := alltransports.ParseImageName("docker://quay.io/isolatedcontainers/kata-operator-payload:v1.0")
 	if err != nil {
 		fmt.Println("Invalid source name")
 		return err
@@ -348,7 +380,7 @@ func installRPMs() error {
 
 	_, err = copy.Image(context.Background(), policyContext, destRef, srcRef, &copy.Options{})
 	err = image.CreateRuntimeBundleLayout("/opt/kata-install/kata-image/",
-		"/usr/local/kata", "latest", "linux", []string{"v1.0"})
+		"/usr/local/kata", "latest", "linux", []string{"name=latest"})
 	if err != nil {
 		fmt.Println("error creating Runtime bundle layout in /usr/local/kata")
 		return err
@@ -360,27 +392,14 @@ func installRPMs() error {
 		return err
 	}
 
-	cmd = exec.Command("/usr/bin/cp", "-f", "/usr/local/kata/linux/packages.repo",
+	cmd = exec.Command("/usr/bin/cp", "-f", "/usr/local/kata/latest/packages.repo",
 		"/etc/yum.repos.d/")
 	if err := doCmd(cmd); err != nil {
 		return err
 	}
 
-	cmd = exec.Command("/usr/bin/cp", "-f", "/usr/local/kata/linux/katainstall.service",
-		"/etc/systemd/system/katainstall.service")
-	if err := doCmd(cmd); err != nil {
-		return err
-	}
-
-	cmd = exec.Command("/usr/bin/cp", "-f",
-		"/usr/local/kata/linux/install_kata_packages.sh",
-		"/opt/kata-install/install_kata_packages.sh")
-	if err := doCmd(cmd); err != nil {
-		return err
-	}
-
 	cmd = exec.Command("/usr/bin/cp", "-a",
-		"/usr/local/kata/linux/packages", "/opt/kata-install/packages")
+		"/usr/local/kata/latest/packages", "/opt/kata-install/packages")
 	if err = doCmd(cmd); err != nil {
 		return err
 	}
@@ -389,9 +408,6 @@ func installRPMs() error {
 		return err
 	}
 
-	if err := rpmostreeOverrideReplace("kernel-*.rpm"); err != nil {
-		return err
-	}
 	if err := rpmostreeOverrideReplace("{rdma-core-*.rpm,libibverbs*.rpm}"); err != nil {
 		return err
 	}
