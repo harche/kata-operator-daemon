@@ -380,7 +380,7 @@ func installRPMs() error {
 
 	_, err = copy.Image(context.Background(), policyContext, destRef, srcRef, &copy.Options{})
 	err = image.CreateRuntimeBundleLayout("/opt/kata-install/kata-image/",
-		"/usr/local/kata", "latest", "linux", []string{"latest"})
+		"/usr/local/kata", "latest", "linux", []string{"name=latest"})
 	if err != nil {
 		fmt.Println("error creating Runtime bundle layout in /usr/local/kata")
 		return err
@@ -394,13 +394,6 @@ func installRPMs() error {
 
 	cmd = exec.Command("/usr/bin/cp", "-f", "/usr/local/kata/latest/packages.repo",
 		"/etc/yum.repos.d/")
-	if err := doCmd(cmd); err != nil {
-		return err
-	}
-
-	cmd = exec.Command("/usr/bin/cp", "-f",
-		"/usr/local/kata/linux/install_kata_packages.sh",
-		"/opt/kata-install/install_kata_packages.sh")
 	if err := doCmd(cmd); err != nil {
 		return err
 	}
