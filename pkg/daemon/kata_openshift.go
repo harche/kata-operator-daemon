@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
-	"time"
 
 	"github.com/containers/image/v5/copy"
 	"github.com/containers/image/v5/signature"
@@ -33,6 +32,7 @@ type KataOpenShift struct {
 	KataBinaryInstaller   KataBinaryOperation
 	KataBinaryUnInstaller KataBinaryOperation
 	KataConfigPoolLabels  map[string]string
+	CRIODropinPath        string
 }
 
 var _ KataActions = (*KataOpenShift)(nil)
@@ -42,7 +42,6 @@ func (k *KataOpenShift) Install(kataConfigResourceName string) error {
 
 	if k.KataInstallChecker == nil {
 		k.KataInstallChecker = func() (bool, bool, error) {
-
 			var isKataInstalled bool
 			var isCrioDropInInstalled bool
 			var err error
@@ -95,7 +94,10 @@ func (k *KataOpenShift) Install(kataConfigResourceName string) error {
 
 	if isKataInstalled {
 		// kata exist - mark completion if crio drop in file exists
-		if _, err := os.Stat("/host/opt/kata-1.conf"); err == nil {
+		if k.CRIODropinPath == "" {
+			k.CRIODropinPath = "/host/etc/crio/crio.conf.d/kata-50.conf"
+		}
+		if _, err := os.Stat(k.CRIODropinPath); err == nil {
 			err = updateKataConfigStatus(k.KataClientSet, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
 				ks.InstallationStatus.Completed.CompletedNodesList = append(ks.InstallationStatus.Completed.CompletedNodesList, nodeName)
 				ks.InstallationStatus.Completed.CompletedNodesCount = len(ks.InstallationStatus.Completed.CompletedNodesList)
@@ -133,9 +135,6 @@ func (k *KataOpenShift) Install(kataConfigResourceName string) error {
 		}
 
 		err = k.KataBinaryInstaller()
-
-		// Temporary hold to simulate time taken for the installation of the binaries
-		time.Sleep(10 * time.Second)
 
 		if err != nil {
 			// kata installation failed. report it.
@@ -230,41 +229,9 @@ func (k *KataOpenShift) Uninstall(kataConfigResourceName string) error {
 	if err != nil {
 		return err
 	}
-	if isKataUnInstalled {
-		// Kata is uninstalled
-		if _, err := os.Stat("/host/opt/kata-1.conf"); err != nil {
-			// crio drop in config is not removed yet. We will wait.
-			return nil
-		} else if os.IsNotExist(err) {
-			// No kata or crio drop in config found. Mark the uninstallation complete
-			// err = updateKataConfigStatus(k.KataClientSet, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
-			// 	ks.UnInstallationStatus.Completed.CompletedNodesCount++
-			// 	ks.UnInstallationStatus.Completed.CompletedNodesList = append(ks.UnInstallationStatus.Completed.CompletedNodesList, nodeName)
 
-			// 	if ks.UnInstallationStatus.InProgress.InProgressNodesCount > 0 {
-			// 		ks.UnInstallationStatus.InProgress.InProgressNodesCount--
-			// 	}
-
-			// 	for i, node := range ks.UnInstallationStatus.InProgress.BinariesUnInstalledNodesList {
-			// 		if node == nodeName {
-			// 			ks.UnInstallationStatus.InProgress.BinariesUnInstalledNodesList =
-			// 				append(ks.UnInstallationStatus.InProgress.BinariesUnInstalledNodesList[:i],
-			// 					ks.UnInstallationStatus.InProgress.BinariesUnInstalledNodesList[i+1:]...)
-			// 			break
-			// 		}
-			// 	}
-			// })
-
-			// if err != nil {
-			// 	return fmt.Errorf("kata is not installed on the node, error updating kataconfig status %+v", err)
-			// }
-
-		} else {
-			return err
-		}
-
-	} else {
-		// Kata binaries needs to be uninstalled
+	if !isKataUnInstalled {
+		// Kata binaries need to be uninstalled
 		err = updateKataConfigStatus(k.KataClientSet, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
 			ks.UnInstallationStatus.InProgress.InProgressNodesCount++
 		})
@@ -306,59 +273,6 @@ func (k *KataOpenShift) Uninstall(kataConfigResourceName string) error {
 		if err != nil {
 			return fmt.Errorf("kata uninstallation succeeded, but error updating kataconfig status %+v", err)
 		}
-
-		// Remove the label from the node
-		// clientset, err := getClientSet()
-		// if err != nil {
-		// 	return err
-		// }
-
-		// node, err := clientset.CoreV1().Nodes().Get(nodeName, metaV1.GetOptions{})
-		// if err != nil {
-		// 	return err
-		// }
-
-		// nodeLabels := node.GetLabels()
-
-		// if k.KataConfigPoolLabels != nil && len(k.KataConfigPoolLabels) > 0 {
-		// 	for k := range k.KataConfigPoolLabels {
-		// 		delete(nodeLabels, k)
-		// 	}
-		// }
-
-		// node.SetLabels(nodeLabels)
-
-		// _, err = clientset.CoreV1().Nodes().Update(node)
-
-		// if err != nil {
-		// 	return err
-		// }
-
-		// // Sleep because MCO takes a bit of time to reflect the change
-		// time.Sleep(60 * time.Second)
-
-		// err = updateKataConfigStatus(k.KataClientSet, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
-		// 	ks.UnInstallationStatus.Completed.CompletedNodesCount++
-		// 	ks.UnInstallationStatus.Completed.CompletedNodesList = append(ks.UnInstallationStatus.Completed.CompletedNodesList, nodeName)
-
-		// 	if ks.UnInstallationStatus.InProgress.InProgressNodesCount > 0 {
-		// 		ks.UnInstallationStatus.InProgress.InProgressNodesCount--
-		// 	}
-
-		// 	for i, node := range ks.UnInstallationStatus.InProgress.BinariesUnInstalledNodesList {
-		// 		if node == nodeName {
-		// 			ks.UnInstallationStatus.InProgress.BinariesUnInstalledNodesList =
-		// 				append(ks.UnInstallationStatus.InProgress.BinariesUnInstalledNodesList[:i],
-		// 					ks.UnInstallationStatus.InProgress.BinariesUnInstalledNodesList[i+1:]...)
-		// 			break
-		// 		}
-		// 	}
-		// })
-
-		// if err != nil {
-		// 	return fmt.Errorf("kata is not installed on the node, error updating kataconfig status %+v", err)
-		// }
-
 	}
 
 	return nil
