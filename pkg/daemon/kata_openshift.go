@@ -95,7 +95,7 @@ func (k *KataOpenShift) Install(kataConfigResourceName string) error {
 	if isKataInstalled {
 		// kata exist - mark completion if crio drop in file exists
 		if k.CRIODropinPath == "" {
-			k.CRIODropinPath = "/host/etc/crio/crio.conf.d/kata-50.conf"
+			k.CRIODropinPath = "/host/etc/crio/crio.conf.d/50-kata.conf"
 		}
 		if _, err := os.Stat(k.CRIODropinPath); err == nil {
 			err = updateKataConfigStatus(k.KataClientSet, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
