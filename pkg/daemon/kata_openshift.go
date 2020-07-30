@@ -332,12 +332,6 @@ func uninstallRPMs() error {
                 return err
         }
 
-        cmd = exec.Command("rpm-ostree", "override", "reset", "-a") //FIXME not -a but kata-runtime, kata-osbuilder,...
-        err = doCmd(cmd)
-        if err != nil {
-
-        }
-
 	return nil
 }
 
@@ -401,14 +395,6 @@ func installRPMs() error {
 	cmd = exec.Command("/usr/bin/cp", "-a",
 		"/usr/local/kata/latest/packages", "/opt/kata-install/packages")
 	if err = doCmd(cmd); err != nil {
-		return err
-	}
-
-	if err := rpmostreeOverrideReplace("linux-firmware-20191202-97.gite8a0f4c9.el8.noarch.rpm"); err != nil {
-		return err
-	}
-
-	if err := rpmostreeOverrideReplace("{rdma-core-*.rpm,libibverbs*.rpm}"); err != nil {
 		return err
 	}
 
