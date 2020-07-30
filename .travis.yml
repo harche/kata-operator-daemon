@@ -1,0 +1,69 @@
+os: linux
+dist: bionic
+language: go
+go:
+  - 1.14.x
+services:
+  - docker
+before_script:
+  - sudo chmod 755 /etc/docker
+
+addons:
+  apt:
+    packages:
+      - "libgpgme-dev"
+      - "libdevmapper-dev"
+
+stages:
+  - deploy
+  - deploy-multi-arch
+
+jobs:
+  include:
+
+  # Build and push the image for amd64
+  - stage: deploy
+    name: Build image for kata-operator-daemon (amd64)
+    arch: amd64
+    deploy:
+      provider: script
+      script: bash hack/deploy.sh
+      skip_cleanup: true
+      on:
+        all_branches: true
+        condition: $TRAVIS_BRANCH =~ ^(release-.*|master)$
+
+  # Build and push the image for ppc64le
+  - stage: deploy
+    name: Build image for kata-operator-daemon (ppc64le)
+    arch: ppc64le
+    deploy:
+      provider: script
+      script: bash hack/deploy.sh
+      skip_cleanup: true
+      on:
+        all_branches: true
+        condition: $TRAVIS_BRANCH =~ ^(release-.*|master)$
+
+  # Build and push the image for s390x
+  - stage: deploy
+    name: Build image for kata-operator-daemon (s390x)
+    arch: s390x
+    deploy:
+      provider: script
+      script: bash hack/deploy.sh
+      skip_cleanup: true
+      on:
+        all_branches: true
+        condition: $TRAVIS_BRANCH =~ ^(release-.*|master)$
+
+  # Deploy the multiarch manifest
+  - stage: deploy-multi-arch
+    name: Deploy multi-arch manifest
+    deploy:
+      provider: script
+      script: bash hack/deploy-multi-arch.sh
+      skip_cleanup: true
+      on:
+        all_branches: true
+        condition: $TRAVIS_BRANCH =~ ^(release-.*|master)$
