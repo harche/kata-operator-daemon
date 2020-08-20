@@ -424,6 +424,11 @@ func installRPMs(k *v1alpha1.KataConfig) error {
 		return err
 	}
 
+	err = cleanupHost()
+	if err != nil {
+		log.Println("cleanupHost failed")
+	}
+
 	return nil
 
 }
