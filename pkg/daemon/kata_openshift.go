@@ -443,5 +443,5 @@ func getClusterVersion() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return clusterversion.Status.Desired.Version, nil
+	return clusterversion.Status.Desired.Version[:5], nil
 }
