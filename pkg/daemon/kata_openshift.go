@@ -328,10 +328,6 @@ func cleanupHost() error {
 }
 
 func uninstallRPMs(k *KataOpenShift) error {
-	log.SetOutput(os.Stdout)
-
-
-func uninstallRPMs(k *v1alpha1.KataConfig) error {
         log.SetOutput(os.Stdout)
 
         if err := syscall.Chroot("/host"); err != nil {
@@ -447,5 +443,5 @@ func getClusterVersion() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return clusterversion.Status.Desired.Version, nil
+	return clusterversion.Status.Desired.Version[:5], nil
 }
