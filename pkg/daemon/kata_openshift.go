@@ -328,10 +328,6 @@ func cleanupHost() error {
 }
 
 func uninstallRPMs(k *KataOpenShift) error {
-	log.SetOutput(os.Stdout)
-
-
-func uninstallRPMs(k *v1alpha1.KataConfig) error {
         log.SetOutput(os.Stdout)
 
         if err := syscall.Chroot("/host"); err != nil {
