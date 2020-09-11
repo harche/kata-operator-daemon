@@ -12,18 +12,19 @@ import (
 	"github.com/containers/image/v5/signature"
 	"github.com/containers/image/v5/transports/alltransports"
 	"github.com/opencontainers/image-tools/image"
-	"github.com/openshift/kata-operator/pkg/apis/kataconfiguration/v1alpha1"
+	confv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	kataTypes "github.com/openshift/kata-operator/pkg/apis/kataconfiguration/v1alpha1"
 	kataClient "github.com/openshift/kata-operator/pkg/generated/clientset/versioned"
 	v1 "k8s.io/api/core/v1"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 // KataExistance checkes if kata is already installed or uninstalled on the node
 type KataExistance func() (bool, bool, error)
 
 // KataBinaryOperation installs the kata binaries on the node
-type KataBinaryOperation func(k *v1alpha1.KataConfig) error
+type KataBinaryOperation func(k *KataOpenShift) error
 
 //KataOpenShift is used for KataActions on OpenShift cluster nodes
 type KataOpenShift struct {
@@ -34,6 +35,7 @@ type KataOpenShift struct {
 	KataBinaryUnInstaller KataBinaryOperation
 	KataConfigPoolLabels  map[string]string
 	CRIODropinPath        string
+	PayloadTag            string
 }
 
 var _ KataActions = (*KataOpenShift)(nil)
@@ -83,6 +85,13 @@ func (k *KataOpenShift) Install(kataConfigResourceName string) error {
 	if isCrioDropInInstalled {
 		return nil
 	}
+
+	k.PayloadTag, err = getClusterVersion()
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+	log.Println("Kata operator payload tag: " + k.PayloadTag)
 
 	if k.KataBinaryInstaller == nil {
 		k.KataBinaryInstaller = installRPMs
@@ -135,12 +144,7 @@ func (k *KataOpenShift) Install(kataConfigResourceName string) error {
 			return fmt.Errorf("kata is not installed on the node, error updating kataconfig status %+v", err)
 		}
 
-		kataconfig, err := k.KataClientSet.KataconfigurationV1alpha1().KataConfigs(v1.NamespaceAll).Get(context.TODO(), kataConfigResourceName, metaV1.GetOptions{})
-		if err != nil {
-			return err
-		}
-
-		err = k.KataBinaryInstaller(kataconfig)
+		err = k.KataBinaryInstaller(k)
 
 		if err != nil {
 			// kata installation failed. report it.
@@ -250,12 +254,7 @@ func (k *KataOpenShift) Uninstall(kataConfigResourceName string) error {
 			k.KataBinaryUnInstaller = uninstallRPMs
 		}
 
-		kataconfig, err := k.KataClientSet.KataconfigurationV1alpha1().KataConfigs(v1.NamespaceAll).Get(context.TODO(), kataConfigResourceName, metaV1.GetOptions{})
-		if err != nil {
-			return err
-		}
-
-		err = k.KataBinaryUnInstaller(kataconfig)
+		err = k.KataBinaryUnInstaller(k)
 
 		if err != nil {
 			// kata uninstallation failed. report it.
@@ -328,6 +327,8 @@ func cleanupHost() error {
 	return nil
 }
 
+func uninstallRPMs(k *KataOpenShift) error {
+	log.SetOutput(os.Stdout)
 
 
 func uninstallRPMs(k *v1alpha1.KataConfig) error {
@@ -355,7 +356,7 @@ func uninstallRPMs(k *v1alpha1.KataConfig) error {
 	return nil
 }
 
-func installRPMs(k *v1alpha1.KataConfig) error {
+func installRPMs(k *KataOpenShift) error {
 	fmt.Fprintf(os.Stderr, "%s\n", os.Getenv("PATH"))
 	log.SetOutput(os.Stdout)
 
@@ -381,7 +382,8 @@ func installRPMs(k *v1alpha1.KataConfig) error {
 	if err != nil {
 		fmt.Println(err)
 	}
-	srcRef, err := alltransports.ParseImageName("docker://" + k.Spec.Config.SourceImage)
+
+	srcRef, err := alltransports.ParseImageName("docker://quay.io/isolatedcontainers/kata-operator-payload:" + k.PayloadTag)
 	if err != nil {
 		fmt.Println("Invalid source name")
 		return err
@@ -431,4 +433,19 @@ func installRPMs(k *v1alpha1.KataConfig) error {
 
 	return nil
 
+}
+
+func getClusterVersion() (string, error) {
+	myconfig, err := clientcmd.BuildConfigFromFlags("", "")
+	if err != nil {
+		return "", err
+	}
+	myconfclient, err := confv1client.NewForConfig(myconfig)
+
+	myversion := "version"
+	clusterversion, err := myconfclient.ClusterVersions().Get(myversion, metaV1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+	return clusterversion.Status.Desired.Version, nil
 }
