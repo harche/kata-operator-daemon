@@ -6,11 +6,13 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 
 	"github.com/containers/image/v5/copy"
 	"github.com/containers/image/v5/signature"
 	"github.com/containers/image/v5/transports/alltransports"
+	"github.com/coreos/go-semver/semver"
 	"github.com/opencontainers/image-tools/image"
 	confv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 	kataTypes "github.com/openshift/kata-operator/pkg/apis/kataconfiguration/v1alpha1"
@@ -443,5 +445,10 @@ func getClusterVersion() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return clusterversion.Status.Desired.Version[:5], nil
+	mysemver, err := semver.NewVersion(clusterversion.Status.Desired.Version)
+	if err != nil {
+		return "", err
+	}
+	versl := mysemver.Slice()
+	return strings.Trim(strings.Replace(fmt.Sprint(versl), " ", ".", -1), "[]"), nil
 }
