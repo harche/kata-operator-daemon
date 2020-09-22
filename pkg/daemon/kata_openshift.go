@@ -15,11 +15,10 @@ import (
 	"github.com/coreos/go-semver/semver"
 	"github.com/opencontainers/image-tools/image"
 	confv1client "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
-	kataTypes "github.com/openshift/kata-operator/pkg/apis/kataconfiguration/v1alpha1"
-	kataClient "github.com/openshift/kata-operator/pkg/generated/clientset/versioned"
-	v1 "k8s.io/api/core/v1"
+	kataTypes "github.com/openshift/kata-operator/api/v1"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/clientcmd"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // KataExistance checkes if kata is already installed or uninstalled on the node
@@ -30,7 +29,7 @@ type KataBinaryOperation func(k *KataOpenShift) error
 
 //KataOpenShift is used for KataActions on OpenShift cluster nodes
 type KataOpenShift struct {
-	KataClientSet         kataClient.Interface
+	KataClient            client.Client
 	KataInstallChecker    KataExistance
 	KataUninstallChecker  KataExistance
 	KataBinaryInstaller   KataBinaryOperation
@@ -50,8 +49,11 @@ func (k *KataOpenShift) Install(kataConfigResourceName string) error {
 			var isKataInstalled bool
 			var isCrioDropInInstalled bool
 			var err error
+			var kataConfig kataTypes.KataConfig
 
-			kataconfig, err := k.KataClientSet.KataconfigurationV1alpha1().KataConfigs(v1.NamespaceAll).Get(context.TODO(), kataConfigResourceName, metaV1.GetOptions{})
+			err = k.KataClient.Get(context.Background(), client.ObjectKey{
+				Name: kataConfigResourceName,
+			}, &kataConfig)
 			if err != nil {
 				return isKataInstalled, isCrioDropInInstalled, err
 			}
@@ -61,14 +63,14 @@ func (k *KataOpenShift) Install(kataConfigResourceName string) error {
 				return isKataInstalled, isCrioDropInInstalled, err
 			}
 
-			for _, n := range kataconfig.Status.InstallationStatus.InProgress.BinariesInstalledNodesList {
+			for _, n := range kataConfig.Status.InstallationStatus.InProgress.BinariesInstalledNodesList {
 				if n == nodeName {
 					isKataInstalled = true
 					break
 				}
 			}
 
-			for _, n := range kataconfig.Status.InstallationStatus.Completed.CompletedNodesList {
+			for _, n := range kataConfig.Status.InstallationStatus.Completed.CompletedNodesList {
 				if n == nodeName {
 					isCrioDropInInstalled = true
 					break
@@ -110,7 +112,7 @@ func (k *KataOpenShift) Install(kataConfigResourceName string) error {
 			k.CRIODropinPath = "/host/etc/crio/crio.conf.d/50-kata.conf"
 		}
 		if _, err := os.Stat(k.CRIODropinPath); err == nil {
-			err = updateKataConfigStatus(k.KataClientSet, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
+			err = updateKataConfigStatus(k.KataClient, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
 				ks.InstallationStatus.Completed.CompletedNodesList = append(ks.InstallationStatus.Completed.CompletedNodesList, nodeName)
 				ks.InstallationStatus.Completed.CompletedNodesCount = len(ks.InstallationStatus.Completed.CompletedNodesList)
 				if ks.InstallationStatus.InProgress.InProgressNodesCount > 0 {
@@ -138,7 +140,7 @@ func (k *KataOpenShift) Install(kataConfigResourceName string) error {
 
 	} else {
 		// kata doesn't exist, install it.
-		err = updateKataConfigStatus(k.KataClientSet, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
+		err = updateKataConfigStatus(k.KataClient, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
 			ks.InstallationStatus.InProgress.InProgressNodesCount++
 		})
 
@@ -150,7 +152,7 @@ func (k *KataOpenShift) Install(kataConfigResourceName string) error {
 
 		if err != nil {
 			// kata installation failed. report it.
-			err = updateKataConfigStatus(k.KataClientSet, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
+			err = updateKataConfigStatus(k.KataClient, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
 				ks.InstallationStatus.InProgress.InProgressNodesCount--
 
 				fn, err := getFailedNode(err)
@@ -168,7 +170,7 @@ func (k *KataOpenShift) Install(kataConfigResourceName string) error {
 
 		} else {
 			// mark binaries installed
-			err = updateKataConfigStatus(k.KataClientSet, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
+			err = updateKataConfigStatus(k.KataClient, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
 				ks.InstallationStatus.InProgress.BinariesInstalledNodesList = append(ks.InstallationStatus.InProgress.BinariesInstalledNodesList, nodeName)
 			})
 
@@ -194,15 +196,18 @@ func (k *KataOpenShift) Uninstall(kataConfigResourceName string) error {
 			var isKataUnInstalled bool
 			var isCrioDropInUnInstalled bool
 			var err error
+			var kataConfig kataTypes.KataConfig
 
-			kataconfig, err := k.KataClientSet.KataconfigurationV1alpha1().KataConfigs(v1.NamespaceAll).Get(context.TODO(), kataConfigResourceName, metaV1.GetOptions{})
+			err = k.KataClient.Get(context.Background(), client.ObjectKey{
+				Name: kataConfigResourceName,
+			}, &kataConfig)
 			if err != nil {
 				return isKataUnInstalled, isCrioDropInUnInstalled, err
 			}
 
 			// Storing it locally so that we can avoid one more call to API server further down
-			if kataconfig.Spec.KataConfigPoolSelector != nil {
-				k.KataConfigPoolLabels = kataconfig.Spec.KataConfigPoolSelector.MatchLabels
+			if kataConfig.Spec.KataConfigPoolSelector != nil {
+				k.KataConfigPoolLabels = kataConfig.Spec.KataConfigPoolSelector.MatchLabels
 			}
 
 			nodeName, err := getNodeName()
@@ -210,14 +215,14 @@ func (k *KataOpenShift) Uninstall(kataConfigResourceName string) error {
 				return isKataUnInstalled, isCrioDropInUnInstalled, err
 			}
 
-			for _, n := range kataconfig.Status.UnInstallationStatus.InProgress.BinariesUnInstalledNodesList {
+			for _, n := range kataConfig.Status.UnInstallationStatus.InProgress.BinariesUnInstalledNodesList {
 				if n == nodeName {
 					isKataUnInstalled = true
 					break
 				}
 			}
 
-			for _, n := range kataconfig.Status.UnInstallationStatus.Completed.CompletedNodesList {
+			for _, n := range kataConfig.Status.UnInstallationStatus.Completed.CompletedNodesList {
 				if n == nodeName {
 					isCrioDropInUnInstalled = true
 					break
@@ -244,7 +249,7 @@ func (k *KataOpenShift) Uninstall(kataConfigResourceName string) error {
 
 	if !isKataUnInstalled {
 		// Kata binaries need to be uninstalled
-		err = updateKataConfigStatus(k.KataClientSet, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
+		err = updateKataConfigStatus(k.KataClient, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
 			ks.UnInstallationStatus.InProgress.InProgressNodesCount++
 		})
 
@@ -260,7 +265,7 @@ func (k *KataOpenShift) Uninstall(kataConfigResourceName string) error {
 
 		if err != nil {
 			// kata uninstallation failed. report it.
-			err = updateKataConfigStatus(k.KataClientSet, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
+			err = updateKataConfigStatus(k.KataClient, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
 				ks.UnInstallationStatus.InProgress.InProgressNodesCount--
 
 				fn, err := getFailedNode(err)
@@ -278,7 +283,7 @@ func (k *KataOpenShift) Uninstall(kataConfigResourceName string) error {
 
 		}
 		// mark binaries uninstalled
-		err = updateKataConfigStatus(k.KataClientSet, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
+		err = updateKataConfigStatus(k.KataClient, kataConfigResourceName, func(ks *kataTypes.KataConfigStatus) {
 			ks.UnInstallationStatus.InProgress.BinariesUnInstalledNodesList = append(ks.UnInstallationStatus.InProgress.BinariesUnInstalledNodesList, nodeName)
 		})
 
@@ -315,41 +320,41 @@ func rpmostreeOverrideReplace(rpms string) error {
 
 func cleanupHost() error {
 	cmd := exec.Command("/usr/bin/rm", "-rf", "/opt/kata-install")
-        err := doCmd(cmd)
-        if err != nil {
-                return err
-        }
+	err := doCmd(cmd)
+	if err != nil {
+		return err
+	}
 
-        cmd = exec.Command("/usr/bin/rm", "-rf", "/usr/local/kata")
-        err = doCmd(cmd)
-        if err != nil {
-                return err
-        }
+	cmd = exec.Command("/usr/bin/rm", "-rf", "/usr/local/kata")
+	err = doCmd(cmd)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
 
 func uninstallRPMs(k *KataOpenShift) error {
-        log.SetOutput(os.Stdout)
+	log.SetOutput(os.Stdout)
 
-        if err := syscall.Chroot("/host"); err != nil {
-                log.Fatalf("Unable to chroot to %s: %s", "/host", err)
-        }
+	if err := syscall.Chroot("/host"); err != nil {
+		log.Fatalf("Unable to chroot to %s: %s", "/host", err)
+	}
 
-        if err := syscall.Chdir("/"); err != nil {
-                log.Fatalf("Unable to chdir to %s: %s", "/", err)
-        }
+	if err := syscall.Chdir("/"); err != nil {
+		log.Fatalf("Unable to chdir to %s: %s", "/", err)
+	}
 
 	err := cleanupHost()
 	if err != nil {
 		log.Println("cleanupHost failed")
 	}
 
-        cmd := exec.Command("rpm-ostree", "uninstall", "--idempotent", "--all") //FIXME not -a but kata-runtime, kata-osbuilder,...
-        err = doCmd(cmd)
-        if err != nil {
-                return err
-        }
+	cmd := exec.Command("rpm-ostree", "uninstall", "--idempotent", "--all") //FIXME not -a but kata-runtime, kata-osbuilder,...
+	err = doCmd(cmd)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -441,7 +446,7 @@ func getClusterVersion() (string, error) {
 	myconfclient, err := confv1client.NewForConfig(myconfig)
 
 	myversion := "version"
-	clusterversion, err := myconfclient.ClusterVersions().Get(myversion, metaV1.GetOptions{})
+	clusterversion, err := myconfclient.ClusterVersions().Get(context.Background(), myversion, metaV1.GetOptions{})
 	if err != nil {
 		return "", err
 	}

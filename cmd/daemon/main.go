@@ -6,9 +6,13 @@ import (
 	"os"
 
 	kataDaemon "github.com/openshift/kata-operator-daemon/pkg/daemon"
-	kataController "github.com/openshift/kata-operator/pkg/controller/kataconfig"
-	kataClient "github.com/openshift/kata-operator/pkg/generated/clientset/versioned"
-	"k8s.io/client-go/tools/clientcmd"
+	kataTypes "github.com/openshift/kata-operator/api/v1"
+	mcfgapi "github.com/openshift/machine-config-operator/pkg/apis/machineconfiguration.openshift.io"
+	"k8s.io/apimachinery/pkg/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	nodeapi "k8s.io/kubernetes/pkg/apis/node/v1beta1"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func main() {
@@ -29,42 +33,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	isOpenShift, err := kataController.IsOpenShift()
-	if err != nil {
-		fmt.Println("Unable to determine if we are running in OpenShift or not")
-		os.Exit(1)
-	}
-
-	//config, err := clientcmd.BuildConfigFromFlags("", "/tmp/kubeconfig")
-	config, err := clientcmd.BuildConfigFromFlags("", "")
-	if err != nil {
-		// TODO - remove printfs with logger
-		fmt.Println("error creating config")
-		os.Exit(1)
-	}
-
-	kc, err := kataClient.NewForConfig(config)
-	if err != nil {
-		fmt.Println("Unable to get client set")
-		os.Exit(1)
-	}
-
 	var kataActions kataDaemon.KataActions
 
-	if isOpenShift {
-		kataActions = &kataDaemon.KataOpenShift{
-			KataClientSet: kc,
-			// KataBinaryInstaller: func() error {
-			// 	return nil
-			// },
-			// KataBinaryUnInstaller: func() error {
-			// 	return nil
-			// },
-		}
-	} else {
-		kataActions = &kataDaemon.KataKubernetes{
-			KataClientSet: kc,
-		}
+	kataClient, err := getKataConfigClient()
+	if err != nil {
+		fmt.Printf("Unable to get dynamic kata config client, %+v", err)
+		os.Exit(1)
+	}
+
+	kataActions = &kataDaemon.KataOpenShift{
+		KataClient: kataClient,
+		// KataBinaryInstaller: func() error {
+		// 	return nil
+		// },
+		// KataBinaryUnInstaller: func() error {
+		// 	return nil
+		// },
 	}
 
 	switch kataOperation {
@@ -89,4 +73,19 @@ func main() {
 		c := make(chan int)
 		<-c
 	}
+}
+
+func getKataConfigClient() (client.Client, error) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = kataTypes.AddToScheme(scheme)
+	_ = nodeapi.AddToScheme(scheme)
+	_ = mcfgapi.Install(scheme)
+
+	kubeconfig := ctrl.GetConfigOrDie()
+	kubeclient, err := client.New(kubeconfig, client.Options{Scheme: scheme})
+	if err != nil {
+		return nil, err
+	}
+	return kubeclient, nil
 }

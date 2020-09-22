@@ -3,16 +3,12 @@ package daemon
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
-	kataTypes "github.com/openshift/kata-operator/pkg/apis/kataconfiguration/v1alpha1"
-	kataClient "github.com/openshift/kata-operator/pkg/generated/clientset/versioned"
-	v1 "k8s.io/api/core/v1"
-	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
+	kataTypes "github.com/openshift/kata-operator/api/v1"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // KataActions declares the possible actions the daemon can take.
@@ -24,23 +20,21 @@ type KataActions interface {
 
 type updateStatus = func(a *kataTypes.KataConfigStatus)
 
-func updateKataConfigStatus(kataClientSet kataClient.Interface, kataConfigResourceName string, us updateStatus) (err error) {
-
+func updateKataConfigStatus(kataClient client.Client, kataConfigResourceName string, us updateStatus) (err error) {
+	var kataConfig kataTypes.KataConfig
 	attempts := 5
 	for i := 0; i < attempts; i++ {
-		kataconfig, err := kataClientSet.KataconfigurationV1alpha1().KataConfigs(v1.NamespaceAll).Get(context.TODO(), kataConfigResourceName, metaV1.GetOptions{})
+		err = kataClient.Get(context.Background(), client.ObjectKey{
+			Name: kataConfigResourceName,
+		}, &kataConfig)
+
 		if err != nil {
-			// TODO - we need to return error
-			break
+			continue // Error, let's attempt to get the object again. TODO - maybe check error type and decide?
 		}
 
-		us(&kataconfig.Status)
+		us(&kataConfig.Status)
 
-		_, err = kataClientSet.KataconfigurationV1alpha1().KataConfigs(v1.NamespaceAll).UpdateStatus(context.TODO(), kataconfig, metaV1.UpdateOptions{FieldManager: "kata-install-daemon"})
-		if err != nil {
-			log.Println("retrying after error:", err)
-			continue
-		}
+		err = kataClient.Status().Update(context.Background(), &kataConfig)
 
 		if err == nil {
 			break
@@ -74,18 +68,4 @@ func getHostName() (string, error) {
 
 func getNodeName() (string, error) {
 	return getHostName()
-}
-
-func getClientSet() (*kubernetes.Clientset, error) {
-	config, err := clientcmd.BuildConfigFromFlags("", "")
-	if err != nil {
-		return nil, err
-	}
-
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, err
-	}
-
-	return clientset, nil
 }
