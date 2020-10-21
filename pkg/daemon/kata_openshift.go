@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -313,62 +314,86 @@ func rpmostreeOverrideReplace(rpms string) error {
 	return nil
 }
 
-func cleanupHost() error {
-	cmd := exec.Command("/usr/bin/rm", "-rf", "/opt/kata-install")
-        err := doCmd(cmd)
-        if err != nil {
-                return err
-        }
-
-        cmd = exec.Command("/usr/bin/rm", "-rf", "/usr/local/kata")
-        err = doCmd(cmd)
-        if err != nil {
-                return err
-        }
-
-	return nil
-}
-
-func uninstallRPMs(k *KataOpenShift) error {
-        log.SetOutput(os.Stdout)
-
-        if err := syscall.Chroot("/host"); err != nil {
-                log.Fatalf("Unable to chroot to %s: %s", "/host", err)
-        }
-
-        if err := syscall.Chdir("/"); err != nil {
-                log.Fatalf("Unable to chdir to %s: %s", "/", err)
-        }
-
-	err := cleanupHost()
-	if err != nil {
-		log.Println("cleanupHost failed")
-	}
-
-        cmd := exec.Command("rpm-ostree", "uninstall", "--idempotent", "--all") //FIXME not -a but kata-runtime, kata-osbuilder,...
-        err = doCmd(cmd)
-        if err != nil {
-                return err
-        }
-
-	return nil
-}
-
-func installRPMs(k *KataOpenShift) error {
-	fmt.Fprintf(os.Stderr, "%s\n", os.Getenv("PATH"))
+func uninstallRPMs(k *KataOpenShift) (err error) {
 	log.SetOutput(os.Stdout)
 
-	cmd := exec.Command("mkdir", "-p", "/host/opt/kata-install")
-	err := doCmd(cmd)
-	if err != nil {
+	defer func() error {
+		cmd := exec.Command("/usr/bin/rm", "-rf", "/opt/kata-install")
+		cleanupErr := doCmd(cmd)
+		if cleanupErr != nil {
+			log.Println(cleanupErr)
+		}
+
+		cmd = exec.Command("/usr/bin/rm", "-rf", "/usr/local/kata")
+		cleanupErr = doCmd(cmd)
+		if cleanupErr != nil {
+			log.Println(cleanupErr)
+		}
 		return err
-	}
+	}()
 
 	if err := syscall.Chroot("/host"); err != nil {
 		log.Fatalf("Unable to chroot to %s: %s", "/host", err)
 	}
 
 	if err := syscall.Chdir("/"); err != nil {
+		log.Fatalf("Unable to chdir to %s: %s", "/", err)
+	}
+
+	cmd := exec.Command("rpm-ostree", "uninstall", "--idempotent", "--all") //FIXME not -a but kata-runtime, kata-osbuilder,...
+	err = doCmd(cmd)
+	if err != nil {
+		return err
+	}
+
+	cmd = exec.Command("/usr/bin/rm", "-rf", "/etc/yum.repos.d/packages.repo")
+	err = doCmd(cmd)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func deleteFile(path string) error {
+	if path == "" {
+		return errors.New("empty string passed to deleteFile()")
+	}
+	cmd := exec.Command("/usr/bin/rm", "-rf", path)
+	err := doCmd(cmd)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func installRPMs(k *KataOpenShift) (err error) {
+	fmt.Fprintf(os.Stderr, "%s\n", os.Getenv("PATH"))
+	log.SetOutput(os.Stdout)
+
+	if err = deleteFile("/host/opt/kata-install"); err != nil {
+		return err
+	}
+
+	if err = deleteFile("/host/usr/local/kata"); err != nil {
+		return err
+	}
+
+	if err = deleteFile("/host/etc/yum.repos.d/packages.repo"); err != nil {
+		return err
+	}
+
+	cmd := exec.Command("mkdir", "-p", "/host/opt/kata-install")
+	err = doCmd(cmd)
+	if err != nil {
+		return err
+	}
+
+	if err = syscall.Chroot("/host"); err != nil {
+		log.Fatalf("Unable to chroot to %s: %s", "/host", err)
+	}
+
+	if err = syscall.Chdir("/"); err != nil {
 		log.Fatalf("Unable to chdir to %s: %s", "/", err)
 	}
 
@@ -386,6 +411,25 @@ func installRPMs(k *KataOpenShift) error {
 		fmt.Println("Invalid source name")
 		return err
 	}
+
+	defer func() error {
+		cmd := exec.Command("/usr/bin/rm", "-rf", "/opt/kata-install")
+		cleanupErr := doCmd(cmd)
+		if cleanupErr != nil {
+			log.Println(cleanupErr)
+			return cleanupErr
+		}
+
+		cmd = exec.Command("/usr/bin/rm", "-rf", "/usr/local/kata")
+		cleanupErr = doCmd(cmd)
+		if cleanupErr != nil {
+			log.Println(cleanupErr)
+			return cleanupErr
+		}
+
+		return err
+	}()
+
 	destRef, err := alltransports.ParseImageName("oci:/opt/kata-install/kata-image:latest")
 	if err != nil {
 		fmt.Println("Invalid destination name")
@@ -393,6 +437,10 @@ func installRPMs(k *KataOpenShift) error {
 	}
 
 	_, err = copy.Image(context.Background(), policyContext, destRef, srcRef, &copy.Options{})
+	if err != nil {
+		fmt.Println("Error downloading payload container image")
+		return err
+	}
 	err = image.CreateRuntimeBundleLayout("/opt/kata-install/kata-image/",
 		"/usr/local/kata", "latest", "linux", []string{"name=latest"})
 	if err != nil {
@@ -420,17 +468,8 @@ func installRPMs(k *KataOpenShift) error {
 
 	cmd = exec.Command("/bin/bash", "-c", "/usr/bin/rpm-ostree install --idempotent kata-runtime kata-osbuilder")
 	err = doCmd(cmd)
-	if err != nil {
-		return err
-	}
 
-	err = cleanupHost()
-	if err != nil {
-		log.Println("cleanupHost failed")
-	}
-
-	return nil
-
+	return err
 }
 
 func getClusterVersion() (string, error) {
